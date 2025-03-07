@@ -19,12 +19,13 @@ from django.contrib.auth.models import User
 def register(request):
     if request.method == "POST":
         try:
-            uname = request.POST.get("uname").strip()
+            uname = request.POST.get("uname")
+            uemail = request.POST.get("uemail")
             upass = request.POST.get("upass")
             ucpass = request.POST.get("ucpass")
 
             # Validate form data
-            if not uname or not upass or not ucpass:
+            if not uname or not uemail or not upass or not ucpass:
                 messages.error(request, "All fields are required.")
                 return redirect("register")
 
@@ -44,8 +45,12 @@ def register(request):
                 messages.error(request, "Username already taken.")
                 return redirect("register")
 
-            # Create and save user (without email)
-            user = User.objects.create_user(username=uname, password=upass)
+            if User.objects.filter(email=uemail).exists():
+                messages.error(request, "Email already registered.")
+                return redirect("register")
+
+            # Create and save user with email
+            user = User.objects.create_user(username=uname, email=uemail, password=upass)
             user.save()
 
             # Success message and redirect to login
@@ -125,8 +130,8 @@ class ContactView(View):
 
             messages.success(request, "Your message has been sent successfully!")
             return redirect('contact')  
-        except IntegrityError:
-            messages.error(request, "Database error: A duplicate entry might exist.")
+        # except IntegrityError:
+        #     messages.error(request, "Database error: A duplicate entry might exist.")
         except DatabaseError:
             messages.error(request, "Database error: Please try again later.")
         except Exception as e:
