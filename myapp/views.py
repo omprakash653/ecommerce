@@ -3,10 +3,15 @@ from django.views import View
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt  # Only use if CSRF is causing issues
 from django.views.decorators.csrf import csrf_protect # Protects all methods from CSRF attacks
-from .models import Contact
+from .models import Contact,Product
 from django.contrib import messages
 from django.db import IntegrityError, DatabaseError
 import re
+from django.core.mail import send_mail
+from django.conf import settings
+from django.http import JsonResponse
+from django.utils.timezone import now
+import random
 ########################################
 def index(request):
     return render(request,'home.html')
@@ -52,6 +57,29 @@ def register(request):
             # Create and save user with email
             user = User.objects.create_user(username=uname, email=uemail, password=upass)
             user.save()
+            # Send welcome email
+            subject = "Welcome to Shopping Kart 🎉"
+            message = f"""
+            Hi {uname}, 
+
+            Welcome to Shopping Kart! 🛒
+            
+            We're thrilled to have you onboard. Start exploring our latest products and enjoy seamless shopping.
+
+            🚀 **Exclusive Benefits Await You:**
+            - Get the best deals on trending products
+            - Fast and secure checkout
+            - 24/7 customer support
+
+            Happy Shopping! 🛍️
+
+            Regards,  
+            **Shopping Kart Team**
+            """
+            from_email = settings.EMAIL_HOST_USER
+            recipient_list = [uemail]
+
+            send_mail(subject, message, from_email, recipient_list, fail_silently=False)
 
             # Success message and redirect to login
             messages.success(request, "Registration successful! Please log in.")
@@ -68,8 +96,6 @@ def register(request):
 ########################################
 
 from django.contrib.auth import authenticate, login, logout
-
-
 def user_login(request):
     if request.method == 'GET':
         return render(request, 'login.html')
@@ -93,7 +119,98 @@ def user_logout(request):
     logout(request)
     messages.success(request, "You have been logged out successfully.")
     return redirect("login")
+###################################################################################################forget
+# Store OTPs temporarily
+otp_storage = {}
 
+def forgot_password(request):
+    if request.method == "POST":
+        email = request.POST.get("email")
+
+        try:
+            user = User.objects.get(email=email)
+            otp = random.randint(100000, 999999)
+            otp_storage[email] = {"otp": otp, "time": now()}  # Save OTP & timestamp
+
+            # Send OTP via email
+            subject = "Password Reset OTP - Shopping Kart"
+            message = f"""
+            Hello {user.username},
+
+            You requested a password reset. Use the OTP below to proceed:
+            
+            🔢 Your OTP: {otp}
+
+            This OTP is valid for 10 minutes.
+
+            If you didn't request this, please ignore this email.
+
+            Regards,
+            Shopping Kart Team
+            """
+            send_mail(subject, message, settings.EMAIL_HOST_USER, [email], fail_silently=False)
+
+            messages.success(request, "OTP has been sent to your email.")
+            return redirect("verify_otp")
+
+        except User.DoesNotExist:
+            messages.error(request, "Email not registered!")
+            return redirect("forgot_password")
+
+    return render(request, "forgot_password.html")
+
+
+def verify_otp(request):
+    if request.method == "POST":
+        email = request.POST.get("email")
+        otp_entered = request.POST.get("otp")
+
+        if email in otp_storage:
+            otp_data = otp_storage[email]
+            otp_correct = otp_data["otp"]
+
+            if str(otp_entered) == str(otp_correct):
+                messages.success(request, "OTP verified! Set a new password.")
+                return redirect("reset_password")
+            else:
+                messages.error(request, "Invalid OTP! Please try again.")
+                return redirect("verify_otp")
+        else:
+            messages.error(request, "OTP expired or invalid.")
+            return redirect("forgot_password")
+
+    return render(request, "verify_otp.html")
+
+
+def reset_password(request):
+    if request.method == "POST":
+        email = request.POST.get("email")
+        new_password = request.POST.get("password")
+        confirm_password = request.POST.get("confirm_password")
+
+        if new_password != confirm_password:
+            messages.error(request, "Passwords do not match!")
+            return redirect("reset_password")
+
+        if len(new_password) < 6 or not any(char.isdigit() for char in new_password) or not any(char.isalpha() for char in new_password):
+            messages.error(request, "Password must be at least 6 characters long and contain both letters and numbers.")
+            return redirect("reset_password")
+
+        try:
+            user = User.objects.get(email=email)
+            user.set_password(new_password)
+            user.save()
+
+            # Clear OTP after successful reset
+            otp_storage.pop(email, None)
+
+            messages.success(request, "Password reset successful! You can log in now.")
+            return redirect("login")
+
+        except User.DoesNotExist:
+            messages.error(request, "Error resetting password. Please try again.")
+
+    return render(request, "reset_password.html")
 
 
 ########################################
@@ -130,8 +247,8 @@ class ContactView(View):
 
             messages.success(request, "Your message has been sent successfully!")
             return redirect('contact')  
-        # except IntegrityError:
-        #     messages.error(request, "Database error: A duplicate entry might exist.")
+        except IntegrityError:
+            messages.error(request, "Database error: A duplicate entry might exist.")
         except DatabaseError:
             messages.error(request, "Database error: Please try again later.")
         except Exception as e:
@@ -140,3 +257,16 @@ class ContactView(View):
         return render(request, self.template_name)  
 
 
+def product(request):
+    p=Product.objects.filter(is_active=True)
+    # print(p)
+    context={}
+    context['data']=p
+    return render(request,'product.html',context)
+
+def product_detail(request,pid):
+    p=Product.objects.filter(id=pid)
+    # print(p)
+    context={}
+    context['data']=p
+    return render(request,'product_details.html',context)

@@ -1,2 +1,3 @@
 django
 mysqlclient==2.2.7
+pillow

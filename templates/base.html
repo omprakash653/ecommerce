@@ -28,25 +28,24 @@
               <a class="nav-link {% if request.path == '/' %}active{% endif %}" href="/">Home</a>
             </li>
             <li class="nav-item">
-              <a class="nav-link {% if request.path == '/categories/' %}active{% endif %}" href="#">Categories</a>
+              <a class="nav-link {% if request.path == '/product/' %}active{% endif %}" href="/product/">Categories</a>
+            </li>
+
+            <li class="nav-item">
+              <a class="nav-link {% if request.path == '/contact/' %}active{% endif %}" href="/contact/">Contact Us</a>
             </li>
             <li class="nav-item">
               <a class="nav-link {% if request.path == '/register/' %}active{% endif %}" href="/register/">Register</a>
             </li>
             {% if user.is_authenticated %}
-                    <li class="nav-item">
-                        <a class="nav-link" href="/logout/">Logout</a>
-                    </li>
-                {% else %}
-                    <li class="nav-item">
-                        <a class="nav-link" href="/login/">Login</a>
-                    </li>
-                {% endif %}
-            
             <li class="nav-item">
-              <a class="nav-link {% if request.path == '/contact/' %}active{% endif %}" href="/contact/">Contact Us</a>
+              <a class="nav-link " href="/logout/">Logout</a>
             </li>
-            
+            {% else %}
+            <li class="nav-item">
+              <a class="nav-link " href="/login/">Login</a>
+            </li>
+            {% endif %}
           </ul>
           <form class="d-flex">
             <input class="form-control me-2" type="search" placeholder="Search" aria-label="Search">
@@ -80,7 +79,8 @@
       <div class="col-md-4 p-4">
         <h5>Social Media</h5>
         <hr>
-        <a href="https://www.linkedin.com/in/om-prakash-yadav-517349219/" target="_blank"><i class="bi bi-linkedin"></i> LinkedIn</a><br>
+        <a href="https://www.linkedin.com/in/om-prakash-yadav-517349219/" target="_blank"><i class="bi bi-linkedin"></i>
+          LinkedIn</a><br>
         <a href="#"><i class="bi bi-facebook"></i> Facebook</a><br>
         <a href="#"><i class="bi bi-instagram"></i> Instagram</a><br>
         <a href="#"><i class="bi bi-twitter"></i> Twitter</a><br>
