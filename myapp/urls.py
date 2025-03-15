@@ -13,6 +13,9 @@ urlpatterns = [
         path("reset-password/", reset_password, name="reset_password"),
         path('contact/', views.ContactView.as_view(), name='contact'),
         path('product/',views.product,name="product"),  
+        path('catfilter/<cv>',views.catfilter),
+        path('sortfilter/<sv>',views.sortfilter),
+        path('pricefilter',views.pricefilter),
         path('product_detail/<pid>',views.product_detail),
 
 ]

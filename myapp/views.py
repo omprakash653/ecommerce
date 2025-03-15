@@ -54,7 +54,7 @@ def register(request):
                 messages.error(request, "Email already registered.")
                 return redirect("register")
 
-            # Create and save user with email
+            
             user = User.objects.create_user(username=uname, email=uemail, password=upass)
             user.save()
             # Send welcome email
@@ -259,6 +259,60 @@ class ContactView(View):
 
 def product(request):
     p=Product.objects.filter(is_active=True)
+    # print(p)
+    context={}
+    context['data']=p
+    return render(request,'product.html',context)
+
+from django.db.models import Q
+# def catfilter(request,cv):
+#     # print(cv)
+#     q1=Q(cat=cv)
+#     q2=Q(is_active=True)
+
+#     p=Product.objects.filter(q1 & q2)
+#     # print(p)
+#     context={}
+#     context['data']=p
+    # return render(request,'product.html',context)
+
+def catfilter(request, cv):
+    # print(cv)
+    q1 = Q(category=cv)  # Use 'category' instead of 'cat'
+    q2 = Q(is_active=True)
+
+    p = Product.objects.filter(q1 & q2)
+    # print(p)
+    context = {'data': p}
+    return render(request, 'product.html', context)
+
+def sortfilter(request,sv):
+    context={}
+    # print(type(sv))
+    if sv=='1':
+        # p=Product.objects.order_by('-price')
+        # context['data']=p
+        t=('-price')
+    else:
+        # p=Product.objects.order_by('price')
+        # context['data']=p
+        t=('price')
+    
+    p=Product.objects.order_by(t).filter(is_active=True)
+    context['data']=p
+    return render(request,'product.html',context)
+
+def pricefilter(request):
+    mn=request.GET['min']
+    mx=request.GET['max']
+
+    # print(mn)
+    # print(mx)
+    q1=Q(price__gte= mn)
+    q2=Q(price__lte= mx)
+    q3=Q(is_active=True)
+
+    p=Product.objects.filter(q1 &q2&q3)
     # print(p)
     context={}
     context['data']=p
