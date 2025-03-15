@@ -17,6 +17,13 @@ urlpatterns = [
         path('sortfilter/<sv>',views.sortfilter),
         path('pricefilter',views.pricefilter),
         path('product_detail/<pid>',views.product_detail),
+        path('addtocart/<pid>',views.addtocart),
+        path('cart',views.cart),
+        path('updateqty/<x>/<cid>',views.updateqty),
+        path('remove/<cid>',views.remove),
+        path('placeorder',views.placeorder),
+        path('fetchorder',views.fetchorder),
+        path('srcfilter',views.srcfilter,name='srcfilter'),
 
 ]
 

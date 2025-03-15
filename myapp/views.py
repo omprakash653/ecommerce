@@ -3,7 +3,7 @@ from django.views import View
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt  # Only use if CSRF is causing issues
 from django.views.decorators.csrf import csrf_protect # Protects all methods from CSRF attacks
-from .models import Contact,Product
+from .models import Contact,Product,Cart,Order
 from django.contrib import messages
 from django.db import IntegrityError, DatabaseError
 import re
@@ -324,3 +324,92 @@ def product_detail(request,pid):
     context={}
     context['data']=p
     return render(request,'product_details.html',context)
+
+def addtocart(request,pid):
+    # print(pid)
+    
+    context={}
+    if request.user.is_authenticated:
+        print(request.user.id)
+        u=User.objects.filter(id=request.user.id)
+        # print(u)
+        # print(u[0].email)
+        p=Product.objects.filter(id=pid)
+        q1=Q(uid=u[0])
+        q2=Q(pid=p[0])
+        c=Cart.objects.filter(q1 & q2)
+        
+        if len(c)==1:
+            context['errmsg']="Product Already Exist in Cart"
+        else:    
+            c=Cart.objects.create(pid=p[0],uid=u[0])
+            c.save()
+            context['success']='Product Added Successfully'
+    
+        context['data']=p
+        return render(request,'product_details.html',context)
+    else:
+        return redirect('/login')
+    
+def cart(request):
+    c=Cart.objects.filter(uid=request.user.id)
+    # print(c)
+    s=0
+    for i in c:
+        s=s+i.pid.price*i.qty
+
+    context={}
+    context['data']=c
+    context['total']=s
+    context['n']=len(c)
+    return render(request,'cart.html',context)
+
+def updateqty(request,x,cid):
+    c=Cart.objects.filter(id=cid)
+    # print(c[0].qty)
+    q=c[0].qty
+    if x=='1':
+        q=q+1
+    elif q>1:
+        q=q-1
+
+    c.update(qty=q)
+    return redirect('/cart')
+
+def remove(request,cid):
+    c=Cart.objects.filter(id=cid)
+    c.delete()
+    return redirect('/cart')
+
+def placeorder(request):
+    c=Cart.objects.filter(uid=request.user.id)
+    for i in c:
+        a=i.pid.price*i.qty
+        o=Order.objects.create(uid=i.uid,pid=i.pid,qty=i.qty,amt=a)
+        o.save()
+        i.delete()
+    return redirect('/fetchorder')
+    
+def fetchorder(request):
+    o=Order.objects.filter(uid=request.user.id)
+    context={}
+    s=0
+    for i in o:
+        s=s+i.amt
+    context['data']=o
+    context['total']=s
+    context['n']=len(o)
+    return render(request,'placeorder.html',context)
+
+def srcfilter(request):
+    s=request.GET['search']
+    pname=Product.objects.filter(name__icontains=s)
+    pdet=Product.objects.filter(pdetails__icontains=s)
+    alldata=pname.union(pdet)
+    # print(alldata)
+    context={}
+    if alldata.count()==0:
+        context['errmsg']='Product Not Found'
+    
+    context['data']=alldata
+    return render(request,'product.html',context)
