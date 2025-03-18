@@ -278,7 +278,7 @@ from django.db.models import Q
 
 def catfilter(request, cv):
     # print(cv)
-    q1 = Q(category=cv)  # Use 'category' instead of 'cat'
+    q1 = Q(category=cv)  
     q2 = Q(is_active=True)
 
     p = Product.objects.filter(q1 & q2)
@@ -314,15 +314,13 @@ def pricefilter(request):
 
     p=Product.objects.filter(q1 &q2&q3)
     # print(p)
-    context={}
-    context['data']=p
+    context = {'data': p}
     return render(request,'product.html',context)
 
 def product_detail(request,pid):
     p=Product.objects.filter(id=pid)
     # print(p)
-    context={}
-    context['data']=p
+    context = {'data': p}
     return render(request,'product_details.html',context)
 
 def addtocart(request,pid):
@@ -402,7 +400,7 @@ def fetchorder(request):
     return render(request,'placeorder.html',context)
 
 def srcfilter(request):
-    s=request.GET['search']
+    s = request.GET.get('search', '').strip() 
     pname=Product.objects.filter(name__icontains=s)
     pdet=Product.objects.filter(pdetails__icontains=s)
     alldata=pname.union(pdet)
@@ -413,3 +411,94 @@ def srcfilter(request):
     
     context['data']=alldata
     return render(request,'product.html',context)
+
+import razorpay
+def makepayment(request):
+    
+    client = razorpay.Client(auth=('rzp_test_0cZOKkv2JT3kMN', '2JknC0N7GWmm1I9Lj4R908AB'))
+    o=Order.objects.filter(uid=request.user.id)
+    s=0
+    for i in o:
+        s=s+i.amt
+
+    data = { "amount": s*100, "currency": "INR", "receipt": "order_rcptid_11" }
+    payment = client.order.create(data=data) 
+    # print(payment)
+    context={}
+    context['payment']=payment
+
+    return render(request,'pay.html',context)
+
+# def paymentsuccess(request):
+
+#     sub='Order confirm'
+#     msg='Payment Successfull'
+#     frm='yadavop97018@gmail.com'
+#     u=User.objects.filter(id=request.user.id)
+#     to=u[0].email
+
+#     send_mail(
+#         sub,
+#         msg,
+#         frm,
+#         [to],
+#         fail_silently=False
+#     )
+
+#     return render(request,'paymentsuccess.html')
+
+from django.core.mail import EmailMessage
+from django.template.loader import render_to_string
+from django.conf import settings
+from io import BytesIO
+from reportlab.pdfgen import canvas
+from django.http import HttpResponse
+from django.contrib.auth.models import User
+
+def generate_invoice(user, total_amount):
+    buffer = BytesIO()
+    p = canvas.Canvas(buffer)
+
+    # Invoice Header
+    p.drawString(100, 800, "Invoice")
+    p.drawString(100, 780, f"Customer: {user.username}")
+    p.drawString(100, 760, f"Email: {user.email}")
+    p.drawString(100, 740, f"Total Amount Paid: ${total_amount}")  # ✅ Dynamic total price
+    p.drawString(100, 720, "Thank you for shopping with us!")
+
+    p.showPage()
+    p.save()
+
+    buffer.seek(0)
+    return buffer
+
+
+def paymentsuccess(request):
+    subject = "Order Confirmation - Thank You for Shopping!"
+    message = """Dear Customer,
+
+Thank you for your purchase! Your payment was successful, and your order is confirmed.
+
+We appreciate your business and look forward to serving you again.
+
+Attached is your invoice for this transaction.
+
+Best Regards,  
+Your Store Team"""
+
+    from_email = settings.DEFAULT_FROM_EMAIL
+    user = User.objects.get(id=request.user.id)
+    to_email = user.email
+
+    # ✅ Calculate total amount from cart
+    total_amount = sum(item.pid.price * item.qty for item in Cart.objects.filter(uid=user.id))
+
+    # ✅ Generate Invoice with total amount
+    invoice = generate_invoice(user, total_amount)
+
+    # ✅ Send Email with Invoice Attachment
+    email = EmailMessage(subject, message, from_email, [to_email])
+    email.attach("Invoice.pdf", invoice.read(), "application/pdf")
+    email.send()
+
+    return render(request, "paymentsuccess.html", {"total": total_amount})

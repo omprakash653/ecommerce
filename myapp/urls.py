@@ -24,6 +24,7 @@ urlpatterns = [
         path('placeorder',views.placeorder),
         path('fetchorder',views.fetchorder),
         path('srcfilter',views.srcfilter,name='srcfilter'),
-
+        path('makepayment',views.makepayment),
+        path('paymentsuccess/', views.paymentsuccess, name='payment-success'),
 ]
 
