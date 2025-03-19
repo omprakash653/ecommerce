@@ -37,7 +37,8 @@ class Cart(models.Model):
     uid=models.ForeignKey('auth.User',on_delete= models.CASCADE,db_column='uid')
     pid=models.ForeignKey('Product',on_delete= models.CASCADE,db_column='pid')
     qty=models.IntegerField(default=1)
-
+    def __str__(self):
+        return {self.uid}
 ############
 class Order(models.Model):
     uid=models.ForeignKey('auth.User',on_delete= models.CASCADE,db_column='uid')

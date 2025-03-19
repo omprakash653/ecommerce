@@ -1,25 +1,31 @@
-from django.shortcuts import render,HttpResponse,redirect
+from django.shortcuts import render, HttpResponse, redirect
 from django.views import View
 from django.utils.decorators import method_decorator
-from django.views.decorators.csrf import csrf_exempt  # Only use if CSRF is causing issues
-from django.views.decorators.csrf import csrf_protect # Protects all methods from CSRF attacks
-from .models import Contact,Product,Cart,Order
+from django.views.decorators.csrf import csrf_exempt, csrf_protect
 from django.contrib import messages
 from django.db import IntegrityError, DatabaseError
-import re
-from django.core.mail import send_mail
+from django.core.mail import send_mail, EmailMessage
 from django.conf import settings
-from django.http import JsonResponse
 from django.utils.timezone import now
-import random
-########################################
-def index(request):
-    return render(request,'home.html')
-
-########################################
-
-import re
+from django.http import JsonResponse
+from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.models import User
+from io import BytesIO
+from reportlab.pdfgen import canvas
+import random
+import razorpay
+
+from .models import Contact, Product, Cart, Order
+
+
+##########################
+# ✅ Home Page
+def index(request):
+    return render(request, 'home.html')
+
+
+# ✅ User Registration
+import re
 
 def register(request):
     if request.method == "POST":
@@ -93,33 +99,306 @@ def register(request):
     return render(request, "register.html")
 
 
-########################################
-
-from django.contrib.auth import authenticate, login, logout
+# ✅ User Login
 def user_login(request):
-    if request.method == 'GET':
-        return render(request, 'login.html')
+    if request.method == "POST":
+        uname = request.POST.get('uname').strip()
+        upass = request.POST.get('upass').strip()
 
-    else:
-        n = request.POST.get('uname', '').strip()
-        p = request.POST.get('upass', '').strip()
-
-      
-        u = authenticate(username=n, password=p)
-
-        if u is not None:
-            login(request, u)
+        user = authenticate(username=uname, password=upass)
+        if user:
+            login(request, user)
             messages.success(request, "Login successful!")
-            return redirect("/")  
+            return redirect("/")
         else:
             messages.error(request, "Invalid credentials! Please try again.")
             return redirect("login")
+
+    return render(request, "login.html")
+
 
 def user_logout(request):
     logout(request)
     messages.success(request, "You have been logged out successfully.")
     return redirect("login")
-###################################################################################################forget
+
+
+# ########################################
+# # @method_decorator(csrf_exempt, name='dispatch')  # Apply decorator to all methods
+@method_decorator(csrf_protect, name='dispatch')  # Protects all methods from CSRF attacks
+class ContactView(View):
+    template_name = 'contact.html'
+
+    def get(self, request):
+        return render(request, self.template_name)
+
+    def post(self, request):
+        try:
+            name = request.POST.get('name').strip()
+            contact = request.POST.get('contact').strip()
+            email = request.POST.get('email').strip()
+            description = request.POST.get('description')
+
+            errors = []
+            if not name:
+                errors.append("Name is required.")
+            if not contact.isdigit() or len(contact) < 10:
+                errors.append("Enter a valid contact number (at least 10 digits).")
+            if "@" not in email or "." not in email:
+                errors.append("Enter a valid email address.")
+            if not description:
+                errors.append("Description cannot be empty.")
+
+            if errors:
+                for error in errors:
+                    messages.error(request, error)
+                return render(request, self.template_name) 
+            Contact.objects.create(name=name, contact=contact, email=email, description=description)
+
+            messages.success(request, "Your message has been sent successfully!")
+            return redirect('contact')  
+        except IntegrityError:
+            messages.error(request, "Database error: A duplicate entry might exist.")
+        except DatabaseError:
+            messages.error(request, "Database error: Please try again later.")
+        except Exception as e:
+            messages.error(request, f"An unexpected error occurred: {str(e)}")
+
+        return render(request, self.template_name)  
+
+
+def product(request):
+    p=Product.objects.filter(is_active=True)
+    # print(p)
+    context={}
+    context['data']=p
+    return render(request,'product.html',context)
+
+from django.db.models import Q
+
+def catfilter(request, cv):
+    # print(cv)
+    q1 = Q(category=cv)  
+    q2 = Q(is_active=True)
+
+    p = Product.objects.filter(q1 & q2)
+    # print(p)
+    context = {'data': p}
+    return render(request, 'product.html', context)
+
+def sortfilter(request,sv):
+    context={}
+    # print(type(sv))
+    if sv=='1':
+        # p=Product.objects.order_by('-price')
+        # context['data']=p
+        t=('-price')
+    else:
+        # p=Product.objects.order_by('price')
+        # context['data']=p
+        t=('price')
+    
+    p=Product.objects.order_by(t).filter(is_active=True)
+    context['data']=p
+    return render(request,'product.html',context)
+
+def pricefilter(request):
+    mn=request.GET['min']
+    mx=request.GET['max']
+
+    # print(mn)
+    # print(mx)
+    q1=Q(price__gte= mn)
+    q2=Q(price__lte= mx)
+    q3=Q(is_active=True)
+
+    p=Product.objects.filter(q1 &q2&q3)
+    # print(p)
+    context = {'data': p}
+    return render(request,'product.html',context)
+
+def product_detail(request,pid):
+    p=Product.objects.filter(id=pid)
+    # print(p)
+    context = {'data': p}
+    return render(request,'product_details.html',context)
+
+def addtocart(request,pid):
+    # print(pid)
+    
+    context={}
+    if request.user.is_authenticated:
+        # print(request.user.id)
+        u=User.objects.filter(id=request.user.id)
+        # print(u)
+        # print(u[0].email)
+        p=Product.objects.filter(id=pid)
+        q1=Q(uid=u[0])
+        q2=Q(pid=p[0])
+        c=Cart.objects.filter(q1 & q2)
+        
+        if len(c)==1:
+            context['errmsg']="Product Already Exist in Cart"
+        else:    
+            c=Cart.objects.create(pid=p[0],uid=u[0])
+            c.save()
+            context['success']='Product Added Successfully'
+    
+        context['data']=p
+        return render(request,'product_details.html',context)
+    else:
+        return redirect('/login')
+    
+########################### 
+
+def updateqty(request,x,cid):
+    c=Cart.objects.filter(id=cid)
+    # print(c[0].qty)
+    q=c[0].qty
+    if x=='1':
+        q=q+1
+    elif q>1: 
+        q=q-1
+
+    c.update(qty=q)
+    return redirect('/cart')
+
+def remove(request,cid):
+    c=Cart.objects.filter(id=cid)
+    c.delete()
+    return redirect('/cart')
+
+def placeorder(request):
+    c=Cart.objects.filter(uid=request.user.id)
+    for i in c:
+        a=i.pid.price*i.qty
+        o=Order.objects.create(uid=i.uid,pid=i.pid,qty=i.qty,amt=a)
+        o.save()
+        i.delete()
+    return redirect('/fetchorder')
+    
+def fetchorder(request):
+    o=Order.objects.filter(uid=request.user.id)
+    context={}
+    s=0
+    for i in o:
+        s=s+i.amt
+    context['data']=o
+    context['total']=s
+    context['n']=len(o)
+    return render(request,'placeorder.html',context)
+
+def srcfilter(request):
+    s = request.GET.get('search', '').strip() 
+    pname=Product.objects.filter(name__icontains=s)
+    pdet=Product.objects.filter(pdetails__icontains=s)
+    alldata=pname.union(pdet)
+    # print(alldata)
+    context={}
+    if alldata.count()==0:
+        context['errmsg']='Product Not Found'
+    
+    context['data']=alldata
+    return render(request,'product.html',context)
+
+
+# ✅ Cart Management
+def cart(request):
+    user_cart = Cart.objects.filter(uid=request.user.id)
+    total_price = sum(item.pid.price * item.qty for item in user_cart)
+
+    return render(request, "cart.html", {"data": user_cart, "total": total_price, "n": len(user_cart)})
+
+def add_to_cart(request, pid):
+    if request.user.is_authenticated:
+        user = request.user
+        product = Product.objects.get(id=pid)
+
+        cart_item, created = Cart.objects.get_or_create(uid=user, pid=product)
+
+        if not created:
+            messages.error(request, "Product already in cart.")
+        else:
+            messages.success(request, "Product added successfully!")
+
+        return redirect("cart")
+
+    return redirect("login")
+
+# ✅ Razorpay Payment Integration
+def makepayment(request):
+    client = razorpay.Client(auth=("rzp_test_0cZOKkv2JT3kMN", "2JknC0N7GWmm1I9Lj4R908AB"))
+    total_amount = sum(order.amt for order in Order.objects.filter(uid=request.user.id))
+    
+    payment = client.order.create({"amount": total_amount * 100, "currency": "INR", "receipt": "order_rcptid_11"})
+    return render(request, "pay.html", {"payment": payment})
+
+def paymentsuccess(request):
+    user = request.user
+    total_amount = sum(order.amt for order in Order.objects.filter(uid=user.id))
+
+    # ✅ Generate Invoice
+    invoice_pdf = generate_invoice_pdf(user, total_amount)
+
+    email = EmailMessage(
+        "Order Confirmation & Invoice - Shopping Kart",
+        "Thank you for your purchase! Your payment was successful. Please find the attached invoice.",
+        settings.DEFAULT_FROM_EMAIL,
+        [user.email],
+    )
+    email.attach("Invoice.pdf", invoice_pdf.getvalue(), "application/pdf")
+    email.send()
+
+    return render(request, "paymentsuccess.html", {"total": total_amount})
+
+
+# ✅ Invoice Generation Function
+def generate_invoice_pdf(user, total_amount):
+    buffer = BytesIO()
+    p = canvas.Canvas(buffer)
+    
+    p.setFont("Helvetica-Bold", 20)
+    p.drawString(200, 800, "Shopping Kart - Invoice")
+    
+    p.setFont("Helvetica", 12)
+    p.drawString(50, 750, f"Customer Name: {user.username}")
+    p.drawString(50, 730, f"Email: {user.email}")
+    p.drawString(50, 710, f"Order Date: {now().strftime('%Y-%m-%d %H:%M:%S')}")
+    p.drawString(50, 690, f"Total Amount: ₹{total_amount}")
+
+    p.line(50, 670, 550, 670)
+
+    y = 650
+    orders = Order.objects.filter(uid=user)
+    for order in orders:
+        p.drawString(50, y, f"Product: {order.pid.name} - ₹{order.amt}")
+        y -= 20
+
+    p.line(50, y - 10, 550, y - 10)
+    p.drawString(50, y - 30, f"Grand Total: ₹{total_amount}")
+
+    p.save()
+    buffer.seek(0)
+    return buffer
+
+
+# ✅ Download Invoice as PDF
+def download_invoice(request, order_id):
+    try:
+        order = Order.objects.get(id=order_id, uid=request.user)
+        total_amount = order.amt
+        pdf_file = generate_invoice_pdf(request.user, total_amount)
+
+        response = HttpResponse(pdf_file, content_type="application/pdf")
+        response["Content-Disposition"] = f"attachment; filename=Invoice_{order.id}.pdf"
+        return response
+    except Order.DoesNotExist:
+        messages.error(request, "Invalid order.")
+        return redirect("/")
+
+
+#####################################################################
+# reset password section
 # Store OTPs temporarily
 otp_storage = {}
 
@@ -213,221 +492,6 @@ def reset_password(request):
     return render(request, "reset_password.html")
 
 
-########################################
-# @method_decorator(csrf_exempt, name='dispatch')  # Apply decorator to all methods
-@method_decorator(csrf_protect, name='dispatch')  # Protects all methods from CSRF attacks
-class ContactView(View):
-    template_name = 'contact.html'
-
-    def get(self, request):
-        return render(request, self.template_name)
-
-    def post(self, request):
-        try:
-            name = request.POST.get('name').strip()
-            contact = request.POST.get('contact').strip()
-            email = request.POST.get('email').strip()
-            description = request.POST.get('description')
-
-            errors = []
-            if not name:
-                errors.append("Name is required.")
-            if not contact.isdigit() or len(contact) < 10:
-                errors.append("Enter a valid contact number (at least 10 digits).")
-            if "@" not in email or "." not in email:
-                errors.append("Enter a valid email address.")
-            if not description:
-                errors.append("Description cannot be empty.")
-
-            if errors:
-                for error in errors:
-                    messages.error(request, error)
-                return render(request, self.template_name) 
-            Contact.objects.create(name=name, contact=contact, email=email, description=description)
-
-            messages.success(request, "Your message has been sent successfully!")
-            return redirect('contact')  
-        except IntegrityError:
-            messages.error(request, "Database error: A duplicate entry might exist.")
-        except DatabaseError:
-            messages.error(request, "Database error: Please try again later.")
-        except Exception as e:
-            messages.error(request, f"An unexpected error occurred: {str(e)}")
-
-        return render(request, self.template_name)  
-
-
-def product(request):
-    p=Product.objects.filter(is_active=True)
-    # print(p)
-    context={}
-    context['data']=p
-    return render(request,'product.html',context)
-
-from django.db.models import Q
-# def catfilter(request,cv):
-#     # print(cv)
-#     q1=Q(cat=cv)
-#     q2=Q(is_active=True)
-
-#     p=Product.objects.filter(q1 & q2)
-#     # print(p)
-#     context={}
-#     context['data']=p
-    # return render(request,'product.html',context)
-
-def catfilter(request, cv):
-    # print(cv)
-    q1 = Q(category=cv)  
-    q2 = Q(is_active=True)
-
-    p = Product.objects.filter(q1 & q2)
-    # print(p)
-    context = {'data': p}
-    return render(request, 'product.html', context)
-
-def sortfilter(request,sv):
-    context={}
-    # print(type(sv))
-    if sv=='1':
-        # p=Product.objects.order_by('-price')
-        # context['data']=p
-        t=('-price')
-    else:
-        # p=Product.objects.order_by('price')
-        # context['data']=p
-        t=('price')
-    
-    p=Product.objects.order_by(t).filter(is_active=True)
-    context['data']=p
-    return render(request,'product.html',context)
-
-def pricefilter(request):
-    mn=request.GET['min']
-    mx=request.GET['max']
-
-    # print(mn)
-    # print(mx)
-    q1=Q(price__gte= mn)
-    q2=Q(price__lte= mx)
-    q3=Q(is_active=True)
-
-    p=Product.objects.filter(q1 &q2&q3)
-    # print(p)
-    context = {'data': p}
-    return render(request,'product.html',context)
-
-def product_detail(request,pid):
-    p=Product.objects.filter(id=pid)
-    # print(p)
-    context = {'data': p}
-    return render(request,'product_details.html',context)
-
-def addtocart(request,pid):
-    # print(pid)
-    
-    context={}
-    if request.user.is_authenticated:
-        print(request.user.id)
-        u=User.objects.filter(id=request.user.id)
-        # print(u)
-        # print(u[0].email)
-        p=Product.objects.filter(id=pid)
-        q1=Q(uid=u[0])
-        q2=Q(pid=p[0])
-        c=Cart.objects.filter(q1 & q2)
-        
-        if len(c)==1:
-            context['errmsg']="Product Already Exist in Cart"
-        else:    
-            c=Cart.objects.create(pid=p[0],uid=u[0])
-            c.save()
-            context['success']='Product Added Successfully'
-    
-        context['data']=p
-        return render(request,'product_details.html',context)
-    else:
-        return redirect('/login')
-    
-def cart(request):
-    c=Cart.objects.filter(uid=request.user.id)
-    # print(c)
-    s=0
-    for i in c:
-        s=s+i.pid.price*i.qty
-
-    context={}
-    context['data']=c
-    context['total']=s
-    context['n']=len(c)
-    return render(request,'cart.html',context)
-
-def updateqty(request,x,cid):
-    c=Cart.objects.filter(id=cid)
-    # print(c[0].qty)
-    q=c[0].qty
-    if x=='1':
-        q=q+1
-    elif q>1:
-        q=q-1
-
-    c.update(qty=q)
-    return redirect('/cart')
-
-def remove(request,cid):
-    c=Cart.objects.filter(id=cid)
-    c.delete()
-    return redirect('/cart')
-
-def placeorder(request):
-    c=Cart.objects.filter(uid=request.user.id)
-    for i in c:
-        a=i.pid.price*i.qty
-        o=Order.objects.create(uid=i.uid,pid=i.pid,qty=i.qty,amt=a)
-        o.save()
-        i.delete()
-    return redirect('/fetchorder')
-    
-def fetchorder(request):
-    o=Order.objects.filter(uid=request.user.id)
-    context={}
-    s=0
-    for i in o:
-        s=s+i.amt
-    context['data']=o
-    context['total']=s
-    context['n']=len(o)
-    return render(request,'placeorder.html',context)
-
-def srcfilter(request):
-    s = request.GET.get('search', '').strip() 
-    pname=Product.objects.filter(name__icontains=s)
-    pdet=Product.objects.filter(pdetails__icontains=s)
-    alldata=pname.union(pdet)
-    # print(alldata)
-    context={}
-    if alldata.count()==0:
-        context['errmsg']='Product Not Found'
-    
-    context['data']=alldata
-    return render(request,'product.html',context)
-
-import razorpay
-def makepayment(request):
-    
-    client = razorpay.Client(auth=('rzp_test_0cZOKkv2JT3kMN', '2JknC0N7GWmm1I9Lj4R908AB'))
-    o=Order.objects.filter(uid=request.user.id)
-    s=0
-    for i in o:
-        s=s+i.amt
-
-    data = { "amount": s*100, "currency": "INR", "receipt": "order_rcptid_11" }
-    payment = client.order.create(data=data) 
-    # print(payment)
-    context={}
-    context['payment']=payment
-
-    return render(request,'pay.html',context)
 
 # def paymentsuccess(request):
 
@@ -446,59 +510,3 @@ def makepayment(request):
 #     )
 
 #     return render(request,'paymentsuccess.html')
-
-from django.core.mail import EmailMessage
-from django.template.loader import render_to_string
-from django.conf import settings
-from io import BytesIO
-from reportlab.pdfgen import canvas
-from django.http import HttpResponse
-from django.contrib.auth.models import User
-
-def generate_invoice(user, total_amount):
-    buffer = BytesIO()
-    p = canvas.Canvas(buffer)
-
-    # Invoice Header
-    p.drawString(100, 800, "Invoice")
-    p.drawString(100, 780, f"Customer: {user.username}")
-    p.drawString(100, 760, f"Email: {user.email}")
-    p.drawString(100, 740, f"Total Amount Paid: ${total_amount}")  # ✅ Dynamic total price
-    p.drawString(100, 720, "Thank you for shopping with us!")
-
-    p.showPage()
-    p.save()
-
-    buffer.seek(0)
-    return buffer
-
-
-def paymentsuccess(request):
-    subject = "Order Confirmation - Thank You for Shopping!"
-    message = """Dear Customer,
-
-Thank you for your purchase! Your payment was successful, and your order is confirmed.
-
-We appreciate your business and look forward to serving you again.
-
-Attached is your invoice for this transaction.
-
-Best Regards,  
-Your Store Team"""
-
-    from_email = settings.DEFAULT_FROM_EMAIL
-    user = User.objects.get(id=request.user.id)
-    to_email = user.email
-
-    # ✅ Calculate total amount from cart
-    total_amount = sum(item.pid.price * item.qty for item in Cart.objects.filter(uid=user.id))
-
-    # ✅ Generate Invoice with total amount
-    invoice = generate_invoice(user, total_amount)
-
-    # ✅ Send Email with Invoice Attachment
-    email = EmailMessage(subject, message, from_email, [to_email])
-    email.attach("Invoice.pdf", invoice.read(), "application/pdf")
-    email.send()
-
-    return render(request, "paymentsuccess.html", {"total": total_amount})
